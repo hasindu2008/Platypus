@@ -1,3 +1,4 @@
+# cython: profile=True
 """
 Cython module used to interface to assembler routines.
 """
@@ -23,6 +24,9 @@ from htslibWrapper cimport Read_IsSecondaryAlignment
 from cwindow cimport bamReadBuffer
 from variant cimport Variant,ASSEMBLER_VAR
 
+cdef int NODE_CACHE_SIZE = 4500 #added by hasindu
+cdef Node* lastNode = NULL #added by hasindu
+
 logger = logging.getLogger("Log")
 
 ###################################################################################################
@@ -40,6 +44,7 @@ cdef extern from "stdlib.h":
     void *calloc(size_t,size_t)
     void *memset(void *buffer, int ch, size_t count )
     void qsort(void*, size_t, size_t, int(*)(void*, void*))
+    int posix_memalign(void **memptr, size_t alignment, size_t size) #added by hasindu
 
 ###################################################################################################
 
@@ -122,6 +127,7 @@ ctypedef struct DeBruijnGraph:
     int kmerSize
     NodeStack* allNodes
     NodeDict* nodes
+    Node** nodeCache     #the nodecache data structure added by hasindu
 
 ###################################################################################################
 
@@ -279,15 +285,15 @@ cdef inline unsigned int hashKmer(char* theKmer, int size):
     cdef unsigned int hashVal = 0
 
     # 1) Sum integers formed by 4-character sub-strings.
-    for i in range(0, size-4, 4):
-        hashVal += theKmer[i]
-        hashVal += (theKmer[i + 1] << 8)
-        hashVal += (theKmer[i + 2] << 16)
-        hashVal += (theKmer[i + 3] << 24)
+    # for i in range(0, size-4, 4):
+        # hashVal += theKmer[i]
+        # hashVal += (theKmer[i + 1] << 8)
+        # hashVal += (theKmer[i + 2] << 16)
+        # hashVal += (theKmer[i + 3] << 24)
 
     # 2) multiply by 101 and add new value. From Paul Larson (see StackOverflow)
-    #for i in range(size):
-    #    hashVal = hashVal * 101 + theKmer[i]
+    for i in range(size):
+       hashVal = hashVal * 101 + theKmer[i]
 
     return hashVal
 
@@ -753,6 +759,14 @@ cdef DeBruijnGraph* createDeBruijnGraph(int kmerSize, int nBuckets):
     theGraph.allNodes = createNodeStack(nBuckets)
     theGraph.nodes = createNodeDict(nBuckets)
 
+    #added by hasindu
+    ret = posix_memalign(<void **>(&theGraph.nodeCache), 64, sizeof(Node *)*NODE_CACHE_SIZE)
+    if ret!=0 :
+        logger.error("Could not allocate memory for NodeCache")
+    for i in range(NODE_CACHE_SIZE):
+        theGraph.nodeCache[i] = NULL    
+    #
+    
     return theGraph
 
 ###################################################################################################
@@ -771,41 +785,99 @@ cdef void destroyDeBruijnGraph(DeBruijnGraph* theGraph):
     # freed elsewhere.
     destroyNodeStack(theGraph.allNodes)
     destroyNodeDict(theGraph.nodes)
+    
+    free(theGraph.nodeCache); #added by hasindu
+    
     free(theGraph)
+    
 
 ###################################################################################################
 
-cdef int DeBruijnGraph_InsertOrUpdateNode(DeBruijnGraph* theGraph, Node** theNode):
-    """
-    Check if a node is already present. If it is, update it, otherwise
-    insert it. Return 1 if the node was inserted and 0 if it was updated.
-    """
-    cdef Node* nodeForUpdating = NULL
-    cdef int foundNode = NodeDict_FindOrInsert(theGraph.nodes, theNode, theGraph.kmerSize, &nodeForUpdating)
+#This function is no longer used : hasindu
+# cdef int DeBruijnGraph_InsertOrUpdateNode(DeBruijnGraph* theGraph, Node** theNode):
+    # """
+    # Check if a node is already present. If it is, update it, otherwise
+    # insert it. Return 1 if the node was inserted and 0 if it was updated.
+    # """    
+    
+    # cdef Node* nodeForUpdating = NULL
+    # cdef int foundNode = NodeDict_FindOrInsert(theGraph.nodes, theNode, theGraph.kmerSize, &nodeForUpdating)
 
-    # Need to create a new node, copying values from theNode
-    if not foundNode:
-        NodeStack_Push(theGraph.allNodes, theNode[0])
-        return 1
+          
+    # # Need to create a new node, copying values from theNode
+    # if not foundNode:
+        # NodeStack_Push(theGraph.allNodes, theNode[0])
+        # return 1
 
-    # Update existing node
+    # # Update existing node
+    # else:
+            
+        # # Update colours of nodes already in graph.
+        # nodeForUpdating.colours |= theNode[0].colours
+        # nodeForUpdating.weight += theNode[0].weight
+        # theNode[0] = nodeForUpdating
+        
+        # return 0
+
+###################################################################################################
+
+#This function was modified by hasindu
+cdef Node* DeBruijnGraph_AddEdge(DeBruijnGraph* theGraph, Node* startNode, Node* endNode, double weight):
+    """
+    """
+  
+    cdef int startNodeWasInserted = 1
+    cdef int endNodeWasInserted = 1
+    
+    #cdef double oldWeight = startNode.weight
+    cdef Node* startnodeForUpdating = NULL
+    cdef Node* endnodeForUpdating = NULL  
+    cdef Node* cacheNode   
+    
+ 
+    ######################################start node########################################
+    
+    #check the previous acess
+    if lastNode != NULL and strncmp(startNode.sequence, lastNode.sequence, theGraph.kmerSize) == 0:
+        startnodeForUpdating = lastNode 
     else:
-        # Update colours of nodes already in graph.
-        nodeForUpdating.colours |= theNode[0].colours
-        nodeForUpdating.weight += theNode[0].weight
-        theNode[0] = nodeForUpdating
-        return 0
-
-###################################################################################################
-
-cdef void DeBruijnGraph_AddEdge(DeBruijnGraph* theGraph, Node* startNode, Node* endNode, double weight):
-    """
-    """
-    cdef double oldWeight = startNode.weight
-    cdef int startNodeWasInserted = DeBruijnGraph_InsertOrUpdateNode(theGraph, &startNode)
-    cdef int endNodeWasInserted = DeBruijnGraph_InsertOrUpdateNode(theGraph, &endNode)
+        cacheNode = theGraph.nodeCache[startNode.position%NODE_CACHE_SIZE]
+        #check the node cache
+        if cacheNode!=NULL and strncmp(startNode.sequence, cacheNode.sequence, theGraph.kmerSize) == 0:  
+            startnodeForUpdating = cacheNode
+        else:
+            startNodeWasInserted = NodeDict_FindOrInsert(theGraph.nodes, &startNode, theGraph.kmerSize, &startnodeForUpdating)
+    
+    ######################################end node######################################## 
+    
+    cacheNode=theGraph.nodeCache[endNode.position%NODE_CACHE_SIZE]
+    if cacheNode!=NULL and strncmp(endNode.sequence, cacheNode.sequence, theGraph.kmerSize) == 0:  
+        endnodeForUpdating = cacheNode
+    else:
+        endNodeWasInserted = NodeDict_FindOrInsert(theGraph.nodes, &endNode, theGraph.kmerSize, &endnodeForUpdating)
+ 
+        
+    #change nodes
+    if startNodeWasInserted:
+        startnodeForUpdating.colours |= startNode.colours
+        startnodeForUpdating.weight += startNode.weight
+        startNode = startnodeForUpdating 
+    else:
+        NodeStack_Push(theGraph.allNodes, startNode)
+    
+    if endNodeWasInserted:
+        endnodeForUpdating.colours |= endNode.colours
+        endnodeForUpdating.weight += endNode.weight
+        endNode = endnodeForUpdating 
+    else:    
+        NodeStack_Push(theGraph.allNodes, endNode)
+    
+    #save for next use
+    global lastNode
+    lastNode = endNode   
+    
     cdef Edge* newEdge = NULL
-
+     
     cdef int i = 0
 
     # Check all outgoing edges from startNode. If it has none, then make one for this edge. Otherwise,
@@ -825,7 +897,9 @@ cdef void DeBruijnGraph_AddEdge(DeBruijnGraph* theGraph, Node* startNode, Node* 
         #logger.error("Error in assembler. Could not find matching end-node for edge. Something is very wrong")
         #logger.error("Start node sequence is %s. End node sequence is %s" %(startNode[0].sequence[0:startNode[0].kmerSize], endNode[0].sequence[0:endNode[0].kmerSize]))
         #raise StandardError, "Assembly Error!!"
-
+        
+    return startNode    
+        
 ###################################################################################################
 
 cdef int dfsVisit(Node* theNode, double minWeight):
@@ -1301,7 +1375,13 @@ cdef void loadReferenceIntoGraph(DeBruijnGraph* theGraph, char* refSeq, int refS
     cdef int lenRef = strlen(refSeq)
     cdef Node tempStartNode
     cdef Node tempEndNode
-
+    
+    #added by hasindu
+    cdef Node* startNode 
+    if ((lenRef-kmerSize) > NODE_CACHE_SIZE):
+        logger.error("The nodeCache %d is not enough. We need %d" % (NODE_CACHE_SIZE,(lenRef-kmerSize)))    
+    #
+    
     for i in range( (lenRef-kmerSize) - 1):
 
         tempStartNode.sequence = refSeq + i
@@ -1316,7 +1396,9 @@ cdef void loadReferenceIntoGraph(DeBruijnGraph* theGraph, char* refSeq, int refS
         tempEndNode.position = refStart + i + 1
         tempEndNode.weight = 1
 
-        DeBruijnGraph_AddEdge(theGraph, &tempStartNode, &tempEndNode, 1)
+        startNode = DeBruijnGraph_AddEdge(theGraph, &tempStartNode, &tempEndNode, 1)
+        
+        theGraph.nodeCache[(refStart + i)%NODE_CACHE_SIZE] = startNode  #added by hasindu
 
 ###################################################################################################
 
@@ -1375,17 +1457,17 @@ cdef void loadReadIntoGraph(cAlignedRead* theRead, DeBruijnGraph* theGraph, int 
             tempStartNode.sequence = theSeq + i
             tempStartNode.kmerSize = kmerSize
             tempStartNode.colours = READ
-            tempStartNode.position = - 1
+            tempStartNode.position = startPos + i #added by hasindu
             tempStartNode.weight = thisMinQual
 
             tempEndNode.sequence = theSeq + i + 1
             tempEndNode.kmerSize = kmerSize
             tempEndNode.colours = READ
-            tempEndNode.position = -1
+            tempEndNode.position = startPos + i + 1 #added by hasindu
             tempEndNode.weight = thisMinQual
-
+                
             DeBruijnGraph_AddEdge(theGraph, &tempStartNode, &tempEndNode, thisMinQual)
-
+    
 ###################################################################################################
 
 cdef void loadBAMDataIntoGraph(DeBruijnGraph* theGraph, list readBuffers, int assembleBadReads, int assembleBrokenPairs, int minQual, int kmerSize):
@@ -1441,14 +1523,18 @@ cdef list assembleReadsAndDetectVariants(char* chrom, int assemStart, int assemE
     cdef int verbosity = options.verbosity
     cdef list theVars = []
 
+    #added by hasindu
+    global lastNode
+    lastNode = NULL
+    
     if verbosity >= 3:
-        logger.debug("Assembling region %s:%s-%s" %(chrom, assemStart, assemEnd))
-
+        logger.debug("Assembling region %s:%s-%s" %(chrom, assemStart, assemEnd))   
+    
     cdef DeBruijnGraph* theGraph = createDeBruijnGraph(kmerSize, nBuckets)
-
     loadReferenceIntoGraph(theGraph, refSeq, refStart, kmerSize)
     loadBAMDataIntoGraph(theGraph, readBuffers, assembleBadReads, assembleBrokenPairs, minQual, kmerSize)
-
+ 
+    
     # If this is true, then don't allow cycles in the graph.
     if options.noCycles:
         while detectCyclesInGraph_Recursive(theGraph, minWeight):
@@ -1471,8 +1557,7 @@ cdef list assembleReadsAndDetectVariants(char* chrom, int assemStart, int assemE
         theVars = findBubblesInGraph(theGraph, minWeight, refSeq, chrom, refStart, refEnd, assemStart, assemEnd, verbosity)
 
     destroyDeBruijnGraph(theGraph)
-    #logger.debug("Finished assembling region %s:%s-%s" %(chrom, start, end))
-    #logger.debug("Found vars %s" %(theVars))
+ 
     return sorted(theVars)
 
 ###################################################################################################
