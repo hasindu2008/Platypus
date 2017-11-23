@@ -1,8 +1,8 @@
-#Platypus
+# Cache optimised Platypus Variant Caller
 
-![Build Status](https://travis-ci.org/IvantheDugtrio/Platypus.svg?branch=master)
+Cache optimised version of the Platypus variant caller. The de Bruijn graph construction process during the local re-assembly step of the original Platypus variant callers consumes more than 66% of the computational time. In this version of Platypus, the graph construction algorithm has been changed such that the memory hierarchy of the computer system is effectively used. 
 
-The Platypus variant caller. The main Web site is https://github.com/andyrimmer/Platypus.
+The main Web site for the original Platypus Variant Caller is https://github.com/andyrimmer/Platypus. This repository has been forked from https://github.com/andyrimmer/Platypus. Code for the local re-assembly step is found in src/cython/assembler.pyx.
 
 ##Installation and execution
 
