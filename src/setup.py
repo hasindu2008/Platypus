@@ -28,7 +28,7 @@ incDirs = ["./", "c"]
 libraryDirs = ["./lib"]
 
 # Debug for Valgrind
-cFlags = ["-funroll-loops", "-D_LARGEFILE64_SOURCE", "-D_FILE_OFFSET_BITS=64" ,"-g", "-Wno-unused-function"]
+cFlags = ["-funroll-loops", "-D_LARGEFILE64_SOURCE", "-D_FILE_OFFSET_BITS=64" ,"-g", "-Wno-unused-function", "-mfpu=neon"]
 tabixFlags = ["-Wno-incompatible-pointer-types-discards-qualifiers","-Wno-unused-function","-Wno-unneeded-internal-declaration"]
 tabproxiesFlags = ["-Wno-unused-function"]
 
