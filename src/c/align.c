@@ -8,7 +8,11 @@
 #ifdef __PPC64__
 #include "vec128int.h"
 #else
-#include <emmintrin.h>
+	#ifdef __arm__
+		#include "see2neon.h"
+	#else
+		#include <emmintrin.h>
+	#endif
 #endif
 #include <stdio.h>
 #include <assert.h>

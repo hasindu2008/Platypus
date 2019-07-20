@@ -26,7 +26,7 @@ CSRC := src/cython/platypusutils.c src/cython/cgenotype.c src/cython/cpopulation
 src/cython/cwindow.c src/cython/variantcaller.c src/cython/vcfutils.c src/cython/variantFilter.c\
 src/cython/assembler.c src/c/align.c src/cython/calign.c src/cython/chaplotype.c src/cython/fastafile.c\
 src/c/pysam_util.c src/cython/htslibWrapper.c src/cython/variant.c src/c/pysam_util.h src/c/align.h\
-src/cython/cerrormodel.c src/c/tandem.h src/c/tandem.c src/pysam/ctabix.c src/pysam/TabProxies.c src/pysam/tabix_util.c
+src/cython/cerrormodel.c src/c/tandem.h src/c/tandem.c src/pysam/ctabix.c src/pysam/TabProxies.c src/pysam/tabix_util.c src/c/sse2neon.h
 
 OTHER := misc/README.txt LICENSE release/setup.py release/buildPlatypus.sh
 
