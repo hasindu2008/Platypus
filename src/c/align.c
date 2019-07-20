@@ -9,7 +9,7 @@
 #include "vec128int.h"
 #else
 	#ifdef __arm__
-		#include "see2neon.h"
+		#include "sse2neon.h"
 	#else
 		#include <emmintrin.h>
 	#endif
