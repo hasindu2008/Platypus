@@ -3,7 +3,8 @@ import os, sys, glob
 from distutils.core import setup
 from distutils.extension import Extension
 
-cFlags = ["-msse2", "-msse3", "-funroll-loops", "-D_LARGEFILE64_SOURCE", "-D_FILE_OFFSET_BITS=64", "-fPIC"]
+#cFlags = ["-msse2", "-msse3", "-funroll-loops", "-D_LARGEFILE64_SOURCE", "-D_FILE_OFFSET_BITS=64", "-fPIC"]
+cFlags = ["-funroll-loops", "-D_LARGEFILE64_SOURCE", "-D_FILE_OFFSET_BITS=64", "-fPIC", "-mfpu=neon"]
 tabix_exclude = ( "main.c", )
 tabix_dest = os.path.abspath( "tabix" )
 
